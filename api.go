@@ -20,12 +20,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+var line = strings.Repeat("-", 75)
+
 type apiRoute struct {
 	method string
 	path   string
 }
 
 func RunLambdaAPI(ctx context.Context, lambdaAddr, port, templatePath string, parseJSON bool, logger *slog.Logger) error {
+	println(line)
+	logger.Info("Starting local API Gateway for Lambda")
+
 	routes, err := parseTemplate(templatePath)
 	if err != nil {
 		return fmt.Errorf("[in lambdalocal.RunLambdaAPI] parseTemplate failed: %w", err)
@@ -65,18 +70,19 @@ func runServer(ctx context.Context, lambdaAddr, port string, routes []apiRoute, 
 
 	// Wait for the interrupt signal
 	<-quit
+	fmt.Println(line)
 
 	// Create a deadline to wait for
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	// Attempt a graceful shutdown
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server...")
 	if err := server.Shutdown(ctx); err != nil {
 		log.Fatalf("Server forced to shutdown: %v", err)
 	}
 
-	log.Println("Server exiting")
+	logger.Info("Server Shut down")
 
 	return nil
 }
@@ -94,7 +100,9 @@ func handler(lambdaAddr string, parseJSON bool, route apiRoute, logger *slog.Log
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		logger.Info("Handling request for " + r.URL.Path)
+		fmt.Println(line)
+		logger.Info("Handling request for: " + route.path)
+		logger.Info("URL request path: " + r.URL.Path)
 
 		// read body
 		requestBody, err := io.ReadAll(r.Body)
@@ -154,7 +162,9 @@ func handler(lambdaAddr string, parseJSON bool, route apiRoute, logger *slog.Log
 		}
 
 		if invokeResponse.Error != nil {
-			logger.Error("Lambda returned error", "invokeResponse.Error", invokeResponse.Error)
+			logger.Error("Lambda returned error")
+			errorBytes, _ := json.MarshalIndent(invokeResponse.Error, "", "    ")
+			fmt.Println(string(errorBytes))
 		}
 
 		response := make(map[string]any)
@@ -175,7 +185,7 @@ func handler(lambdaAddr string, parseJSON bool, route apiRoute, logger *slog.Log
 			return
 		}
 
-		logger.Info("Lambda returned")
+		logger.Info("Lambda return:")
 		fmt.Println(string(out))
 
 		APIGatewayResponse := events.APIGatewayProxyResponse{}
@@ -187,11 +197,13 @@ func handler(lambdaAddr string, parseJSON bool, route apiRoute, logger *slog.Log
 
 		// headers
 		for k, v := range APIGatewayResponse.Headers {
-			println(k, v)
 			w.Header().Set(k, v)
 		}
 
 		// status code
+		if APIGatewayResponse.StatusCode == 0 {
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		w.WriteHeader(APIGatewayResponse.StatusCode)
 
 		// body

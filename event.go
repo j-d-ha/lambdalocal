@@ -9,6 +9,9 @@ import (
 )
 
 func RunLambdaEvent(ctx context.Context, address, event string, parseJSON bool, logger *slog.Logger) error {
+	println(line)
+	logger.Info("Starting local Lambda invocation with Event")
+
 	invokeResponse, err := invoke(address, []byte(event), 5*time.Second)
 	if err != nil {
 		return fmt.Errorf("[in lambdalocal.RunLambdaEvent] invoke failed: %w", err)
