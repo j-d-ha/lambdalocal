@@ -1,5 +1,7 @@
 # lambdalocal
 
+CLI tool for invoking AWS Lambdas locally
+
 ## Overview
 `lambdalocal` is a Go based commandline tool for invoking locally running AWS Lambda functions for development, testing, and debugging. It has two modes: `api` and `event`. 
 
@@ -9,4 +11,4 @@
 
 ## Issues and Support
 
-CLI tool for invoking AWS Lambdas locally
+
