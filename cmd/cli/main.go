@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"time"
 
 	"github.com/j-d-ha/lambdalocal"
 	"github.com/urfave/cli/v3"
@@ -19,17 +20,6 @@ func main() {
 		log.Fatal(err)
 	}
 }
-
-// general
-// address: string -> default: localhost:8000
-
-// api
-// port: string -> default: 8080
-// template path: string -> if not passed, looks for ./template.yaml, error if not found
-
-// invoke
-// event-file: string -> path to event. Cant be used with event
-// event: string -> will be passed as event. If set with event-file, error will be raised
 
 func run(ctx context.Context) error {
 	logger := slog.Default()
@@ -47,6 +37,12 @@ func run(ctx context.Context) error {
 				Aliases: []string{"p"},
 				Value:   false,
 				Usage:   "Parse response values like 'body' as JSON.",
+			},
+			&cli.IntFlag{
+				Name:    "executionLimit",
+				Aliases: []string{"e"},
+				Value:   5,
+				Usage:   "Execution time limit for this lambda in seconds.",
 			},
 		},
 		Commands: []*cli.Command{
@@ -83,13 +79,14 @@ func run(ctx context.Context) error {
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					// get flags
+					executionLimit := time.Duration(cmd.Int("executionLimit")) * time.Second
 					address := cmd.String("address")
 					port := cmd.String("port")
 					template := cmd.String("template")
 					parseJSON := cmd.Bool("parse-json")
 
-					// run API
-					if err := lambdalocal.RunLambdaAPI(ctx, address, port, template, parseJSON, logger); err != nil {
+					// run local API gateway
+					if err := lambdalocal.RunLambdaAPI(ctx, address, port, template, parseJSON, executionLimit, logger); err != nil {
 						return fmt.Errorf("[in main.run.api] RunLambdaAPI failed: %w", err)
 					}
 					return nil
@@ -149,12 +146,14 @@ func run(ctx context.Context) error {
 					return nil
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
-					// get flag
+					// get flags
+					executionLimit := time.Duration(cmd.Int("executionLimit")) * time.Second
 					address := cmd.String("address")
 					event := cmd.String("string")
 					parseJSON := cmd.Bool("parse-json")
 
-					if err := lambdalocal.RunLambdaEvent(ctx, address, event, parseJSON, logger); err != nil {
+					// invoke lambda with event
+					if err := lambdalocal.RunLambdaEvent(ctx, address, event, parseJSON, executionLimit, logger); err != nil {
 						return fmt.Errorf("[in main.run.event] RunLambdaEvent failed: %w", err)
 					}
 					return nil

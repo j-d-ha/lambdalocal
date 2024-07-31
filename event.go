@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-func RunLambdaEvent(ctx context.Context, address, event string, parseJSON bool, logger *slog.Logger) error {
+func RunLambdaEvent(ctx context.Context, address, event string, parseJSON bool, executionLimit time.Duration, logger *slog.Logger) error {
 	println(line)
 	logger.Info("Starting local Lambda invocation with Event")
 
-	invokeResponse, err := invoke(address, []byte(event), 5*time.Second)
+	invokeResponse, err := invoke(address, []byte(event), executionLimit)
 	if err != nil {
 		return fmt.Errorf("[in lambdalocal.RunLambdaEvent] invoke failed: %w", err)
 	}
