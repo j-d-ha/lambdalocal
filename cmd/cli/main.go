@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -41,7 +42,7 @@ func run(ctx context.Context) error {
 			&cli.IntFlag{
 				Name:    "executionLimit",
 				Aliases: []string{"e"},
-				Value:   5,
+				Value:   5, //nolint:mnd
 				Usage:   "Execution time limit for this lambda in seconds.",
 			},
 		},
@@ -58,7 +59,7 @@ func run(ctx context.Context) error {
 						Action: func(ctx context.Context, cmd *cli.Command, v string) error {
 							re := regexp.MustCompile(`^\d{4}$`)
 							if re.MatchString(v) {
-								return fmt.Errorf("expected 4 consectutive digets. Got %v", v)
+								return fmt.Errorf("expected 4 consecutive digets. Got %v", v)
 							}
 							return nil
 						},
@@ -71,8 +72,9 @@ func run(ctx context.Context) error {
 						Action: func(ctx context.Context, cmd *cli.Command, v string) error {
 							_, err := os.Stat(v)
 							if os.IsNotExist(err) {
-								return fmt.Errorf("template '%v' does not exist", v)
+								return errors.New(fmt.Sprintf("template '%v' does not exist", v))
 							}
+
 							return nil
 						},
 					},
@@ -80,15 +82,18 @@ func run(ctx context.Context) error {
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					// get flags
 					executionLimit := time.Duration(cmd.Int("executionLimit")) * time.Second
-					address := cmd.String("address")
+					lambdaAddress := cmd.String("lambdaAddress")
 					port := cmd.String("port")
 					template := cmd.String("template")
 					parseJSON := cmd.Bool("parse-json")
 
+					lambdaRPC := lambdalocal.NewLambdaRPC(lambdaAddress, executionLimit)
+
 					// run local API gateway
-					if err := lambdalocal.RunLambdaAPI(ctx, address, port, template, parseJSON, executionLimit, logger); err != nil {
+					if err := lambdalocal.RunLambdaAPI(ctx, lambdaRPC, port, template, parseJSON, logger); err != nil {
 						return fmt.Errorf("[in main.run.api] RunLambdaAPI failed: %w", err)
 					}
+
 					return nil
 				},
 			},
@@ -103,8 +108,9 @@ func run(ctx context.Context) error {
 						Action: func(ctx context.Context, cmd *cli.Command, v string) error {
 							_, err := os.Stat(v)
 							if os.IsNotExist(err) {
-								return fmt.Errorf("event file '%v' does not exist", v)
+								return errors.New(fmt.Sprintf("event file '%v' does not exist", v))
 							}
+
 							return nil
 						},
 					},
@@ -120,7 +126,7 @@ func run(ctx context.Context) error {
 
 					// validate that both event and file-event not set
 					if filePath != "" && event != "" {
-						return fmt.Errorf("'file-event' and 'event' are mutually exclusive")
+						return errors.New("'file-event' and 'event' are mutually exclusive")
 					}
 
 					// if file path, read file to string
@@ -129,7 +135,11 @@ func run(ctx context.Context) error {
 						if err != nil {
 							return fmt.Errorf("[in main.run.event] failed to open event file: %w", err)
 						}
-						defer file.Close()
+						defer func() {
+							if err = file.Close(); err != nil {
+								logger.Error("Error closing file", "err", err)
+							}
+						}()
 
 						bytes, err := io.ReadAll(file)
 						if err != nil {
@@ -148,14 +158,17 @@ func run(ctx context.Context) error {
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					// get flags
 					executionLimit := time.Duration(cmd.Int("executionLimit")) * time.Second
-					address := cmd.String("address")
+					lambdaAddress := cmd.String("lambdaAddress")
 					event := cmd.String("string")
 					parseJSON := cmd.Bool("parse-json")
 
+					lambdaRPC := lambdalocal.NewLambdaRPC(lambdaAddress, executionLimit)
+
 					// invoke lambda with event
-					if err := lambdalocal.RunLambdaEvent(ctx, address, event, parseJSON, executionLimit, logger); err != nil {
+					if err := lambdalocal.RunLambdaEvent(ctx, lambdaRPC, event, parseJSON, logger); err != nil {
 						return fmt.Errorf("[in main.run.event] RunLambdaEvent failed: %w", err)
 					}
+
 					return nil
 				},
 			},
@@ -163,7 +176,8 @@ func run(ctx context.Context) error {
 	}
 
 	if err := cmd.Run(ctx, os.Args); err != nil {
-		return err
+		return fmt.Errorf("[in main.run] Run failed: %w", err)
 	}
+
 	return nil
 }
