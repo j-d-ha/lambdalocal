@@ -25,6 +25,7 @@ func run(ctx context.Context) error {
 	logger := slog.Default()
 
 	cmd := &cli.Command{
+		Usage: "A tool for invoking AWS Lambdas locally",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:    "address",
@@ -48,7 +49,7 @@ func run(ctx context.Context) error {
 		Commands: []*cli.Command{
 			{
 				Name:  "api",
-				Usage: "run lambda as an api",
+				Usage: "Run local API and invoke lambda with requests",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "port",
@@ -98,7 +99,7 @@ func run(ctx context.Context) error {
 			},
 			{
 				Name:  "event",
-				Usage: "invoke lambda with event",
+				Usage: "Invoke lambda with JSON event",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:    "file",
