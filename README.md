@@ -1,5 +1,7 @@
 # lambdalocal
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/j-d-ha/lambdalocal)](https://goreportcard.com/report/github.com/j-d-ha/lambdalocal)
+
 CLI tool for invoking AWS Lambdas locally
 
 ## Overview
