@@ -1,25 +1,23 @@
-package lambdalocal
+package main
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"time"
 )
 
-func RunLambdaEvent(ctx context.Context, address, event string, parseJSON bool, executionLimit time.Duration, logger *slog.Logger) error {
-	println(line)
+func RunLambdaEvent(ctx context.Context, lambdaRPC lambdaCaller, event string, parseJSON bool, logger *slog.Logger) error { //nolint:lll
+	println(line) //nolint:forbidigo
 	logger.Info("Starting local Lambda invocation with Event")
 
-	invokeResponse, err := invoke(address, []byte(event), executionLimit)
+	invokeResponse, err := lambdaRPC.Invoke([]byte(event))
 	if err != nil {
 		return fmt.Errorf("[in lambdalocal.RunLambdaEvent] invoke failed: %w", err)
 	}
 
 	if invokeResponse.Error != nil {
 		logger.Error("Lambda returned error", "invokeResponse.Error", invokeResponse.Error)
-		return nil
 	}
 
 	response := make(map[string]any)
@@ -37,7 +35,7 @@ func RunLambdaEvent(ctx context.Context, address, event string, parseJSON bool, 
 	}
 
 	logger.Info("Lambda returned")
-	fmt.Println(string(out))
+	fmt.Println(string(out)) //nolint:forbidigo
 
 	return nil
 }

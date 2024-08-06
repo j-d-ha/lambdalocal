@@ -1,4 +1,4 @@
-package lambdalocal
+package main
 
 import (
 	"context"
@@ -16,34 +16,47 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda/messages"
 	"gopkg.in/yaml.v3"
 )
 
-var line = strings.Repeat("-", 75)
+const shutdownDuration = 5 * time.Second
+
+var line = strings.Repeat("-", 75) //nolint:gochecknoglobals
 
 type apiRoute struct {
 	method string
 	path   string
 }
 
-func RunLambdaAPI(ctx context.Context, lambdaAddr, port, templatePath string, parseJSON bool, executionLimit time.Duration, logger *slog.Logger) error {
-	println(line)
+type LambdaAPI struct {
+	logger *slog.Logger
+}
+
+type lambdaCaller interface {
+	Invoke(data []byte) (messages.InvokeResponse, error)
+}
+
+func RunLambdaAPI(ctx context.Context, lambdaRPC lambdaCaller, port, templatePath string, parseJSON bool, logger *slog.Logger) error { //nolint:lll
+	fmt.Println(line)
 	logger.Info("Starting local API Gateway for Lambda")
 
-	routes, err := parseTemplate(templatePath)
+	routes, err := parseTemplate(templatePath, osFileReader{})
 	if err != nil {
 		return fmt.Errorf("[in lambdalocal.RunLambdaAPI] parseTemplate failed: %w", err)
 	}
+	if len(routes) == 0 {
+		return errors.New("[in lambdalocal.RunLambdaAPI] no routes found")
+	}
 
-	if err = runServer(ctx, lambdaAddr, port, routes, parseJSON, executionLimit, logger); err != nil {
+	if err = runServer(ctx, lambdaRPC, port, routes, parseJSON, logger); err != nil {
 		return fmt.Errorf("[in lambdalocal.RunLambdaAPI] runServer failed: %w", err)
 	}
 
 	return nil
 }
 
-func runServer(ctx context.Context, lambdaAddr, port string, routes []apiRoute, parseJSON bool, executionLimit time.Duration, logger *slog.Logger) (err error) {
+func runServer(ctx context.Context, lambdaRPC lambdaCaller, port string, routes []apiRoute, parseJSON bool, logger *slog.Logger) (err error) { //nolint:lll
 	addr := fmt.Sprintf("%s:%s", "localhost", port)
 	router := http.NewServeMux()
 
@@ -52,12 +65,12 @@ func runServer(ctx context.Context, lambdaAddr, port string, routes []apiRoute, 
 		logger.Info(fmt.Sprintf("%s http://%s%s", route.method, addr, route.path))
 		router.Handle(
 			fmt.Sprintf("%s %s", route.method, route.path),
-			handler(lambdaAddr, parseJSON, route, executionLimit, logger),
+			gatewayHandler(lambdaRPC, parseJSON, route, logger),
 		)
 	}
 
 	// Create a simple HTTP server
-	server := &http.Server{
+	server := &http.Server{ //nolint:gosec // will not be used in production so not a problem
 		Addr:    addr,
 		Handler: router,
 	}
@@ -78,10 +91,10 @@ func runServer(ctx context.Context, lambdaAddr, port string, routes []apiRoute, 
 	select {
 	// Wait for the interrupt signal
 	case <-quit:
-		fmt.Println(line)
+		fmt.Println(line) //nolint:forbidigo
 
 		// Create a deadline to wait for
-		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		ctx, cancel := context.WithTimeout(ctx, shutdownDuration)
 		defer cancel()
 
 		// Attempt a graceful shutdown
@@ -91,16 +104,16 @@ func runServer(ctx context.Context, lambdaAddr, port string, routes []apiRoute, 
 		}
 
 		logger.Info("Server Shut down")
+
 		return nil
 
 	case err = <-errChan:
 		return err
 	}
-
 }
 
 type genericAPIEvent struct {
-	Resource                        string              `json:"resource"` // The resource path defined for the handler
+	Resource                        string              `json:"resource"` // The resource path defined for the gatewayHandler
 	Path                            string              `json:"path"`     // The url path for the caller
 	HTTPMethod                      string              `json:"httpMethod"`
 	Headers                         map[string]string   `json:"headers"`
@@ -111,7 +124,16 @@ type genericAPIEvent struct {
 	Body                            string              `json:"body"`
 }
 
-func handler(lambdaAddr string, parseJSON bool, route apiRoute, executionLimit time.Duration, logger *slog.Logger) http.Handler {
+type genericAPIResponse struct {
+	StatusCode        int                 `json:"statusCode"`
+	Headers           map[string]string   `json:"headers"`
+	MultiValueHeaders map[string][]string `json:"multiValueHeaders"`
+	Body              string              `json:"body"`
+	IsBase64Encoded   bool                `json:"isBase64Encoded,omitempty"`
+}
+
+func gatewayHandler(lambdaRPC lambdaCaller, parseJSON bool, route apiRoute, logger *slog.Logger) http.Handler { //nolint:funlen
+
 	// get path param keys
 	re := regexp.MustCompile(`\{([^}]*)\}`)
 	matches := re.FindAllStringSubmatch(route.path, -1)
@@ -124,124 +146,141 @@ func handler(lambdaAddr string, parseJSON bool, route apiRoute, executionLimit t
 	}
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Println(line)
+		fmt.Println(line) //nolint:forbidigo
 		logger.Info("Handling request for: " + route.path)
 		logger.Info("URL request path: " + r.URL.Path)
 
-		// read body
-		requestBody, err := io.ReadAll(r.Body)
+		eventByte, err := parseHTTPRequest(r, pathParamKeys, route.path)
 		if err != nil {
-			logger.Error("[in lambdalocal.RunLambdaAPI] read request body failed", "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			logger.Error("[in lambdalocal.RunLambdaAPI] parseHTTPRequest failed", "err", err)
+			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusBadRequest)
+
 			return
 		}
 
-		// path parameters
-		pathParams := make(map[string]string)
-		for _, paramKey := range pathParamKeys {
-			paramValue := r.PathValue(paramKey)
-			if paramValue != "" {
-				pathParams[paramKey] = paramValue
-			}
-		}
-
-		// Extract headers
-		headers := make(map[string]string)
-		multiValueHeaders := make(map[string][]string)
-		for key, values := range r.Header {
-			headers[key] = values[0]
-
-			if multiValueHeader := strings.Split(values[0], ";"); len(multiValueHeader) > 1 {
-				multiValueHeaders[key] = multiValueHeader
-			}
-		}
-
-		// Extract query string parameters
-		queryStringParameters := make(map[string]string)
-		multiValueQueryStringParameters := make(map[string][]string)
-		for key, values := range r.URL.Query() {
-			queryStringParameters[key] = values[0]
-			if len(values) > 1 {
-				multiValueQueryStringParameters[key] = values
-			}
-		}
-
-		eventByte, err := json.Marshal(genericAPIEvent{
-			Resource:                        route.path,
-			Path:                            r.URL.Path,
-			HTTPMethod:                      r.Method,
-			Headers:                         headers,
-			MultiValueHeaders:               multiValueHeaders,
-			QueryStringParameters:           queryStringParameters,
-			MultiValueQueryStringParameters: multiValueQueryStringParameters,
-			PathParameters:                  pathParams,
-			Body:                            string(requestBody),
-		})
-		if err != nil {
-			logger.Error("[in lambdalocal.RunLambdaAPI] marshal event failed", "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		invokeResponse, err := invoke(lambdaAddr, eventByte, executionLimit)
+		invokeResponse, err := lambdaRPC.Invoke(eventByte)
 		if err != nil {
 			logger.Error("[in lambdalocal.RunLambdaAPI] invoke failed", "err", err)
 			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+
 			return
 		}
 
-		if invokeResponse.Error != nil {
-			logger.Error("Lambda returned error")
-			errorBytes, _ := json.MarshalIndent(invokeResponse.Error, "", "    ")
-			fmt.Println(string(errorBytes))
-		}
-
-		response := make(map[string]any)
-		if err = json.Unmarshal(invokeResponse.Payload, &response); err != nil {
-			logger.Error("[in lambdalocal.RunLambdaEvent] unmarshal response failed", "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		if parseJSON {
-			response = parseInnerJSON(response)
-		}
-
-		out, err := json.MarshalIndent(response, "", "    ")
+		formattedResponse, err := outputLambdaResponse(invokeResponse, parseJSON)
 		if err != nil {
-			logger.Error("[in lambdalocal.RunLambdaEvent] MarshalIndent response failed", "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			logger.Error("[in lambdalocal.RunLambdaAPI] invoke failed", "err", err)
+			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+
 			return
 		}
+		logger.Info("Lambda response:")
+		fmt.Println(formattedResponse)
 
-		logger.Info("Lambda return:")
-		fmt.Println(string(out))
+		if err = returnHTTPResponse(w, invokeResponse); err != nil {
+			logger.Error("[in lambdalocal.RunLambdaAPI] returnHTTPResponse failed", "err", err)
+			http.Error(w, http.StatusText(http.StatusServiceUnavailable), http.StatusInternalServerError)
 
-		APIGatewayResponse := events.APIGatewayProxyResponse{}
-		if err := json.Unmarshal(invokeResponse.Payload, &APIGatewayResponse); err != nil {
-			logger.Error("[in lambdalocal.RunLambdaAPI] Unmarshal payload failed", "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
-			return
-		}
-
-		// headers
-		for k, v := range APIGatewayResponse.Headers {
-			w.Header().Set(k, v)
-		}
-
-		// status code
-		if APIGatewayResponse.StatusCode == 0 {
-			w.WriteHeader(http.StatusInternalServerError)
-		}
-		w.WriteHeader(APIGatewayResponse.StatusCode)
-
-		// body
-		if _, err := w.Write([]byte(APIGatewayResponse.Body)); err != nil {
-			logger.Error("[in lambdalocal.RunLambdaAPI] failed to encode response body", "err", err)
-			http.Error(w, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
 	})
+}
+
+func parseHTTPRequest(r *http.Request, pathParamKeys []string, resourcePath string) ([]byte, error) {
+	// read body
+	requestBody, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("[in lambdalocal.RunLambdaAPI] failed to read request body: %w", err)
+	}
+
+	// path parameters
+	pathParams := make(map[string]string)
+	for _, paramKey := range pathParamKeys {
+		paramValue := r.PathValue(paramKey)
+		if paramValue != "" {
+			pathParams[paramKey] = paramValue
+		}
+	}
+
+	// Extract headers
+	headers := make(map[string]string)
+	multiValueHeaders := make(map[string][]string)
+	for key, values := range r.Header {
+		headers[key] = values[0]
+		multiValueHeaders[key] = values
+	}
+
+	// Extract query string parameters
+	queryStringParameters := make(map[string]string)
+	multiValueQueryStringParameters := make(map[string][]string)
+	for key, values := range r.URL.Query() {
+		queryStringParameters[key] = values[len(values)-1]
+		multiValueQueryStringParameters[key] = values
+	}
+
+	eventByte, err := json.Marshal(genericAPIEvent{
+		Resource:                        resourcePath,
+		Path:                            r.URL.Path,
+		HTTPMethod:                      r.Method,
+		Headers:                         headers,
+		MultiValueHeaders:               multiValueHeaders,
+		QueryStringParameters:           queryStringParameters,
+		MultiValueQueryStringParameters: multiValueQueryStringParameters,
+		PathParameters:                  pathParams,
+		Body:                            string(requestBody),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("[in lambdalocal.parseHTTPRequest] marshal response failed: %w", err)
+	}
+
+	return eventByte, nil
+}
+
+func outputLambdaResponse(invokeResponse messages.InvokeResponse, parseJSON bool) (string, error) {
+	responseMap := make(map[string]any)
+
+	responseMap["Error"] = invokeResponse.Error
+
+	responseBody := make(map[string]any)
+	if err := json.Unmarshal(invokeResponse.Payload, &responseBody); err != nil {
+		return "", fmt.Errorf("[in lambdalocal.outputLambdaResponse] unmarshal response failed: %w", err)
+	}
+	if parseJSON {
+		responseBody = parseInnerJSON(responseBody)
+	}
+	responseMap["Payload"] = responseBody
+
+	out, err := json.MarshalIndent(responseMap, "", "    ")
+	if err != nil {
+		return "", fmt.Errorf("[in lambdalocal.outputLambdaResponse] marshal response failed: %w", err)
+	}
+	return string(out), nil
+}
+
+func returnHTTPResponse(w http.ResponseWriter, invokeResponse messages.InvokeResponse) error {
+	APIResponse := genericAPIResponse{}
+
+	if err := json.Unmarshal(invokeResponse.Payload, &APIResponse); err != nil {
+		return fmt.Errorf("[in lambdalocal.returnHTTPResponse] Unmarshal payload failed: %w", err)
+	}
+
+	// headers
+	for k, v := range APIResponse.Headers {
+		w.Header().Set(k, v)
+	}
+
+	// status code
+	if APIResponse.StatusCode == 0 {
+		w.WriteHeader(http.StatusInternalServerError)
+	} else {
+		w.WriteHeader(APIResponse.StatusCode)
+	}
+
+	// body
+	if _, err := w.Write([]byte(APIResponse.Body)); err != nil {
+		return fmt.Errorf("[in lambdalocal.returnHTTPResponse] Write body failed: %w", err)
+	}
+
+	return nil
 }
 
 type samTemplate struct {
@@ -259,23 +298,32 @@ type samTemplate struct {
 	} `yaml:"Resources"`
 }
 
-func parseTemplate(templatePath string) ([]apiRoute, error) {
-	yamlFile, err := os.ReadFile(templatePath)
+type osFileReader struct{}
+
+func (osFileReader) read(name string) ([]byte, error) {
+	return os.ReadFile(name)
+}
+
+type fileReader interface {
+	read(name string) ([]byte, error)
+}
+
+func parseTemplate(templatePath string, reader fileReader) ([]apiRoute, error) {
+	yamlFile, err := reader.read(templatePath)
 	if err != nil {
-		return nil, fmt.Errorf("[in lambdalocal.parseTemplate] read file failed: %w", err)
+		return []apiRoute{}, fmt.Errorf("[in lambdalocal.parseTemplate] read file failed: %w", err)
 	}
 
 	SAMData := samTemplate{}
 	if err = yaml.Unmarshal(yamlFile, &SAMData); err != nil {
-		return nil, fmt.Errorf("[in lambdalocal.parseTemplate] unmarshal yaml failed: %w", err)
+		return []apiRoute{}, fmt.Errorf("[in lambdalocal.parseTemplate] unmarshal yaml failed: %w", err)
 	}
 
 	var routes []apiRoute
-
 	for _, resource := range SAMData.Resources {
 		for _, event := range resource.Properties.Events {
 			routes = append(routes, apiRoute{
-				method: event.Properties.Method,
+				method: strings.ToUpper(event.Properties.Method),
 				path:   event.Properties.Path,
 			})
 		}
