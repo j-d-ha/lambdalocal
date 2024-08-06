@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/j-d-ha/lambdalocal"
 	"github.com/urfave/cli/v3"
 )
 
@@ -82,16 +81,16 @@ func run(ctx context.Context) error {
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					// get flags
 					executionLimit := time.Duration(cmd.Int("executionLimit")) * time.Second
-					lambdaAddress := cmd.String("lambdaAddress")
+					lambdaAddress := cmd.String("address")
 					port := cmd.String("port")
 					template := cmd.String("template")
 					parseJSON := cmd.Bool("parse-json")
 
-					lambdaRPC := lambdalocal.NewLambdaRPC(lambdaAddress, executionLimit)
+					lambdaRPC := NewLambdaRPC(lambdaAddress, executionLimit)
 
 					// run local API gateway
-					if err := lambdalocal.RunLambdaAPI(ctx, lambdaRPC, port, template, parseJSON, logger); err != nil {
-						return fmt.Errorf("[in main.run.api] RunLambdaAPI failed: %w", err)
+					if err := RunLambdaAPI(ctx, lambdaRPC, port, template, parseJSON, logger); err != nil {
+						return fmt.Errorf("[in run.api] RunLambdaAPI failed: %w", err)
 					}
 
 					return nil
@@ -133,7 +132,7 @@ func run(ctx context.Context) error {
 					if filePath != "" {
 						file, err := os.Open(filePath)
 						if err != nil {
-							return fmt.Errorf("[in main.run.event] failed to open event file: %w", err)
+							return fmt.Errorf("[in run.event] failed to open event file: %w", err)
 						}
 						defer func() {
 							if err = file.Close(); err != nil {
@@ -143,11 +142,11 @@ func run(ctx context.Context) error {
 
 						bytes, err := io.ReadAll(file)
 						if err != nil {
-							return fmt.Errorf("[in main.run.event] failed to read event file: %w", err)
+							return fmt.Errorf("[in run.event] failed to read event file: %w", err)
 						}
 
 						if err = cmd.Set("string", string(bytes)); err != nil {
-							return fmt.Errorf("[in main.run.event] failed to set value for key 'string': %w", err)
+							return fmt.Errorf("[in run.event] failed to set value for key 'string': %w", err)
 						}
 
 						return nil
@@ -158,15 +157,15 @@ func run(ctx context.Context) error {
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					// get flags
 					executionLimit := time.Duration(cmd.Int("executionLimit")) * time.Second
-					lambdaAddress := cmd.String("lambdaAddress")
+					lambdaAddress := cmd.String("address")
 					event := cmd.String("string")
 					parseJSON := cmd.Bool("parse-json")
 
-					lambdaRPC := lambdalocal.NewLambdaRPC(lambdaAddress, executionLimit)
+					lambdaRPC := NewLambdaRPC(lambdaAddress, executionLimit)
 
 					// invoke lambda with event
-					if err := lambdalocal.RunLambdaEvent(ctx, lambdaRPC, event, parseJSON, logger); err != nil {
-						return fmt.Errorf("[in main.run.event] RunLambdaEvent failed: %w", err)
+					if err := RunLambdaEvent(ctx, lambdaRPC, event, parseJSON, logger); err != nil {
+						return fmt.Errorf("[in run.event] RunLambdaEvent failed: %w", err)
 					}
 
 					return nil
@@ -176,7 +175,7 @@ func run(ctx context.Context) error {
 	}
 
 	if err := cmd.Run(ctx, os.Args); err != nil {
-		return fmt.Errorf("[in main.run] Run failed: %w", err)
+		return fmt.Errorf("[in run] Run failed: %w", err)
 	}
 
 	return nil

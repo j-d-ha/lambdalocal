@@ -1,4 +1,4 @@
-package lambdalocal
+package main
 
 import (
 	"fmt"
@@ -54,7 +54,7 @@ func (l LambdaRPC) Invoke(data []byte) (messages.InvokeResponse, error) {
 
 	client, err := rpc.Dial("tcp", l.address)
 	if err != nil {
-		return messages.InvokeResponse{}, fmt.Errorf("[in lambdalocal.invoke] rpcDial error: %w", err)
+		return messages.InvokeResponse{}, fmt.Errorf("[in lambdalocal.invoke] rpcDial error, address '%s': %w", l.address, err)
 	}
 	defer client.Close()
 
@@ -63,6 +63,5 @@ func (l LambdaRPC) Invoke(data []byte) (messages.InvokeResponse, error) {
 	if err != nil {
 		return messages.InvokeResponse{}, fmt.Errorf("[in lambdalocal.invoke] client.Call error: %w", err)
 	}
-
 	return response, nil
 }

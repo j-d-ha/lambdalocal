@@ -1,4 +1,4 @@
-package lambdalocal
+package main
 
 import (
 	"context"
@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/aws/aws-lambda-go/lambda/messages"
-	"github.com/j-d-ha/lambdalocal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -78,7 +77,7 @@ func TestRunLambdaEvent(t *testing.T) {
 
 			mockLambdaRPC.On("Invoke", []byte(tt.event)).Return(tt.invokeResp, tt.invokeErr)
 
-			err := lambdalocal.RunLambdaEvent(context.Background(), mockLambdaRPC, tt.event, tt.parseJSON, logger)
+			err := RunLambdaEvent(context.Background(), mockLambdaRPC, tt.event, tt.parseJSON, logger)
 
 			if tt.expectedErr == "" {
 				require.NoError(t, err)

@@ -1,4 +1,4 @@
-package lambdalocal
+package main
 
 import (
 	"context"
