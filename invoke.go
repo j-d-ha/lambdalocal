@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-lambda-go/lambda/messages"
+	"github.com/google/uuid"
 )
 
 type Option func(*LambdaRPC)
@@ -45,7 +46,8 @@ func NewLambdaRPC(address string, executionLimit time.Duration, options ...Optio
 func (l LambdaRPC) Invoke(data []byte) (messages.InvokeResponse, error) {
 	deadline := time.Now().Add(l.executionLimit)
 	request := messages.InvokeRequest{
-		Payload: data,
+		Payload:   data,
+		RequestId: uuid.New().String(),
 		Deadline: messages.InvokeRequest_Timestamp{
 			Seconds: deadline.Unix(),
 			Nanos:   int64(deadline.Nanosecond()),
