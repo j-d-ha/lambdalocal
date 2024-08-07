@@ -27,3 +27,6 @@ go.work.sum
 
 # AWS
 **./.aws-sam
+
+
+/sample_request.txt
