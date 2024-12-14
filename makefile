@@ -1,3 +1,10 @@
+
+### General targets
+.PHONEY: lint
+lint: ## run golangci-lint
+	@echo "Running golangci-lint"
+	@golangci-lint run
+
 ### Examples
 
 .PHONEY: run_event

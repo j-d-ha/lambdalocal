@@ -5,8 +5,10 @@ go 1.22
 require (
 	github.com/aws/aws-lambda-go v1.47.0
 	github.com/google/uuid v1.6.0
+	github.com/lmittmann/tint v1.0.5
 	github.com/stretchr/testify v1.8.4
 	github.com/urfave/cli/v3 v3.0.0-alpha9
+	golang.org/x/sync v0.10.0
 	gopkg.in/yaml.v3 v3.0.1
 )
 

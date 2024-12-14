@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"os"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/lambda/messages"
@@ -19,7 +20,7 @@ type MockLambdaCaller struct {
 
 func (m *MockLambdaCaller) Invoke(data []byte) (messages.InvokeResponse, error) {
 	args := m.Called(data)
-	return args.Get(0).(messages.InvokeResponse), args.Error(1)
+	return args.Get(0).(messages.InvokeResponse), args.Error(1) //nolint:wrapcheck,forcetypeassert
 }
 
 func TestRunLambdaEvent(t *testing.T) {
@@ -68,25 +69,27 @@ func TestRunLambdaEvent(t *testing.T) {
 		},
 	}
 
-	for name, tt := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+	for name, tc := range tests {
+		t.Run(
+			name, func(t *testing.T) {
+				t.Parallel()
 
-			mockLambdaRPC := new(MockLambdaCaller)
-			logger := slog.Default()
+				mockLambdaRPC := new(MockLambdaCaller)
+				logger := slog.Default()
 
-			mockLambdaRPC.On("Invoke", []byte(tt.event)).Return(tt.invokeResp, tt.invokeErr)
+				mockLambdaRPC.On("Invoke", []byte(tc.event)).Return(tc.invokeResp, tc.invokeErr)
 
-			err := RunLambdaEvent(context.Background(), mockLambdaRPC, tt.event, tt.parseJSON, logger)
+				err := RunLambdaEvent(context.Background(), os.Stdout, mockLambdaRPC, tc.event, tc.parseJSON, logger)
 
-			if tt.expectedErr == "" {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.expectedErr)
-			}
+				if tc.expectedErr == "" {
+					require.NoError(t, err)
+				} else {
+					require.Error(t, err)
+					assert.Contains(t, err.Error(), tc.expectedErr)
+				}
 
-			mockLambdaRPC.AssertExpectations(t)
-		})
+				mockLambdaRPC.AssertExpectations(t)
+			},
+		)
 	}
 }

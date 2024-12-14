@@ -1,3 +1,4 @@
+//nolint:cyclop
 package main
 
 import (
@@ -72,11 +73,13 @@ func TestParseInnerJSON(t *testing.T) {
 	}
 
 	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name, func(t *testing.T) {
+				t.Parallel()
 
-			actual := parseInnerJSON(tc.input)
-			assert.Equal(t, tc.expected, actual)
-		})
+				actual := parseInnerJSON(tc.input)
+				assert.Equal(t, tc.expected, actual)
+			},
+		)
 	}
 }

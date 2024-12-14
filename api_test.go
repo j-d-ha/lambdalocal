@@ -1,3 +1,4 @@
+//nolint:funlen
 package main
 
 import (
@@ -55,31 +56,37 @@ func TestGatewayHandler(t *testing.T) {
 	}
 
 	for name, tc := range testCases {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name, func(t *testing.T) {
+				t.Parallel()
 
-			mockLambdaRPC := new(MockLambdaCaller)
-			logger := slog.Default()
+				mockLambdaRPC := new(MockLambdaCaller)
+				logger := slog.Default()
 
-			mockLambdaRPC.
-				On("Invoke", mock.Anything).
-				Return(tc.mockInvokeResponse, tc.mockInvokeError).
-				Once()
+				mockLambdaRPC.
+					On("Invoke", mock.Anything).
+					Return(tc.mockInvokeResponse, tc.mockInvokeError).
+					Once()
 
-			req := httptest.NewRequest(tc.requestMethod, tc.requestPath, nil)
-			rr := httptest.NewRecorder()
+				req := httptest.NewRequest(tc.requestMethod, tc.requestPath, nil)
+				rr := httptest.NewRecorder()
 
-			handler := gatewayHandler(mockLambdaRPC, tc.parseJSON, tc.route, logger)
-			handler.ServeHTTP(rr, req)
+				handler := gatewayHandler(mockLambdaRPC, tc.parseJSON, tc.route, logger)
+				handler.ServeHTTP(rr, req)
 
-			resp := rr.Result()
-			body, _ := io.ReadAll(resp.Body)
+				resp := rr.Result()
+				defer func() {
+					_ = resp.Body.Close()
+				}()
 
-			assert.Equal(t, tc.expectedStatus, resp.StatusCode)
-			assert.Equal(t, tc.expectedResponse, string(body))
+				body, _ := io.ReadAll(resp.Body)
 
-			mockLambdaRPC.AssertExpectations(t)
-		})
+				assert.Equal(t, tc.expectedStatus, resp.StatusCode)
+				assert.Equal(t, tc.expectedResponse, string(body))
+
+				mockLambdaRPC.AssertExpectations(t)
+			},
+		)
 	}
 }
 
@@ -124,11 +131,17 @@ func TestParseHTTPRequest(t *testing.T) {
 			pathParamKeys: []string{},
 			resourcePath:  "/test",
 			expectedEvent: genericAPIEvent{
-				Resource:                        "/test",
-				Path:                            "/test",
-				HTTPMethod:                      http.MethodPost,
-				Headers:                         map[string]string{"Content-Type": "application/json", "Authorization": "Bearer token"}, //nolint:lll
-				MultiValueHeaders:               map[string][]string{"Content-Type": {"application/json"}, "Authorization": {"Bearer token"}},
+				Resource:   "/test",
+				Path:       "/test",
+				HTTPMethod: http.MethodPost,
+				Headers: map[string]string{
+					"Content-Type":  "application/json",
+					"Authorization": "Bearer token",
+				},
+				MultiValueHeaders: map[string][]string{
+					"Content-Type":  {"application/json"},
+					"Authorization": {"Bearer token"},
+				},
 				QueryStringParameters:           map[string]string{},
 				MultiValueQueryStringParameters: map[string][]string{},
 				PathParameters:                  map[string]string{},
@@ -137,10 +150,13 @@ func TestParseHTTPRequest(t *testing.T) {
 			expectError: false,
 		},
 		"GET request with multi-value headers and query params": {
-			method:        http.MethodGet,
-			target:        "/test?id=123&name=test&name=example",
-			body:          "",
-			headers:       map[string]string{"Content-Type": "application/json", "Accept": "application/json;application/xml"},
+			method: http.MethodGet,
+			target: "/test?id=123&name=test&name=example",
+			body:   "",
+			headers: map[string]string{
+				"Content-Type": "application/json",
+				"Accept":       "application/json;application/xml",
+			},
 			pathParamKeys: []string{"id"},
 			resourcePath:  "/test",
 			expectedEvent: genericAPIEvent{
@@ -171,26 +187,28 @@ func TestParseHTTPRequest(t *testing.T) {
 	}
 
 	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name, func(t *testing.T) {
+				t.Parallel()
 
-			req := httptest.NewRequest(tc.method, tc.target, bytes.NewReader([]byte(tc.body)))
-			for k, v := range tc.headers {
-				req.Header.Set(k, v)
-			}
+				req := httptest.NewRequest(tc.method, tc.target, bytes.NewReader([]byte(tc.body)))
+				for k, v := range tc.headers {
+					req.Header.Set(k, v)
+				}
 
-			eventByte, err := parseHTTPRequest(req, tc.pathParamKeys, tc.resourcePath)
-			if tc.expectError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
+				eventByte, err := parseHTTPRequest(req, tc.pathParamKeys, tc.resourcePath)
+				if tc.expectError {
+					assert.Error(t, err)
+				} else {
+					require.NoError(t, err)
 
-				var actualEvent genericAPIEvent
-				err = json.Unmarshal(eventByte, &actualEvent)
-				require.NoError(t, err)
-				assert.Equal(t, tc.expectedEvent, actualEvent)
-			}
-		})
+					var actualEvent genericAPIEvent
+					err = json.Unmarshal(eventByte, &actualEvent)
+					require.NoError(t, err)
+					assert.Equal(t, tc.expectedEvent, actualEvent)
+				}
+			},
+		)
 	}
 }
 
@@ -209,11 +227,13 @@ func TestOutputLambdaResponse(t *testing.T) {
 				Error: &messages.InvokeResponse_Error{
 					Message: "this is a test error",
 					Type:    "test error",
-					StackTrace: []*messages.InvokeResponse_Error_StackFrame{{
-						Path:  "test path",
-						Line:  5,
-						Label: "test label",
-					}},
+					StackTrace: []*messages.InvokeResponse_Error_StackFrame{
+						{
+							Path:  "test path",
+							Line:  5,
+							Label: "test label",
+						},
+					},
 				},
 			},
 			parseJSON: true,
@@ -249,11 +269,13 @@ func TestOutputLambdaResponse(t *testing.T) {
 				Error: &messages.InvokeResponse_Error{
 					Message: "this is a test error",
 					Type:    "test error",
-					StackTrace: []*messages.InvokeResponse_Error_StackFrame{{
-						Path:  "test path",
-						Line:  5,
-						Label: "test label",
-					}},
+					StackTrace: []*messages.InvokeResponse_Error_StackFrame{
+						{
+							Path:  "test path",
+							Line:  5,
+							Label: "test label",
+						},
+					},
 				},
 			},
 			parseJSON:      true,
@@ -263,17 +285,19 @@ func TestOutputLambdaResponse(t *testing.T) {
 	}
 
 	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name, func(t *testing.T) {
+				t.Parallel()
 
-			output, err := outputLambdaResponse(tc.input, tc.parseJSON)
-			if tc.expectedError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				assert.JSONEq(t, tc.expectedOutput, output)
-			}
-		})
+				output, err := outputLambdaResponse(tc.input, tc.parseJSON)
+				if tc.expectedError {
+					assert.Error(t, err)
+				} else {
+					require.NoError(t, err)
+					assert.JSONEq(t, tc.expectedOutput, output)
+				}
+			},
+		)
 	}
 }
 
@@ -328,32 +352,36 @@ func TestReturnHTTPResponse(t *testing.T) {
 	}
 
 	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name, func(t *testing.T) {
+				t.Parallel()
 
-			rec := httptest.NewRecorder()
-			err := returnHTTPResponse(rec, tc.invokeResponse)
+				rec := httptest.NewRecorder()
+				err := returnHTTPResponse(rec, tc.invokeResponse)
 
-			if tc.expectError {
-				assert.Error(t, err)
-			} else {
-				require.NoError(t, err)
-				result := rec.Result()
-				defer func() {
-					if err := result.Body.Close(); err != nil {
-						require.NoError(t, err)
+				if tc.expectError {
+					assert.Error(t, err)
+				} else {
+					require.NoError(t, err)
+
+					result := rec.Result()
+					defer func() {
+						if err := result.Body.Close(); err != nil {
+							require.NoError(t, err)
+						}
+					}()
+
+					assert.Equal(t, tc.expectedStatus, result.StatusCode)
+
+					for k, v := range tc.expectedHeaders {
+						assert.Equal(t, v, result.Header.Get(k))
 					}
-				}()
-				assert.Equal(t, tc.expectedStatus, result.StatusCode)
 
-				for k, v := range tc.expectedHeaders {
-					assert.Equal(t, v, result.Header.Get(k))
+					body, _ := io.ReadAll(result.Body)
+					assert.JSONEq(t, tc.expectedBody, string(body))
 				}
-
-				body, _ := io.ReadAll(result.Body)
-				assert.JSONEq(t, tc.expectedBody, string(body))
-			}
-		})
+			},
+		)
 	}
 }
 
@@ -364,7 +392,7 @@ type mockOSFileReader struct {
 func (m *mockOSFileReader) read(filename string) ([]byte, error) {
 	args := m.Called(filename)
 
-	return args.Get(0).([]byte), args.Error(1)
+	return args.Get(0).([]byte), args.Error(1) //nolint:wrapcheck,forcetypeassert
 }
 
 func TestParseTemplate(t *testing.T) {
@@ -476,23 +504,26 @@ Resources:
 	}
 
 	for name, tc := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
+		t.Run(
+			name, func(t *testing.T) {
+				t.Parallel()
 
-			mockReader := new(mockOSFileReader)
-			mockReader.
-				On("read", tc.mockInput...).
-				Return(tc.mockReturn...).
-				Once()
+				mockReader := new(mockOSFileReader)
+				mockReader.
+					On("read", tc.mockInput...).
+					Return(tc.mockReturn...).
+					Once()
 
-			result, err := parseTemplate("", mockReader)
+				result, err := parseTemplate("", mockReader)
 
-			assert.Equal(t, tc.expectedRoutes, result)
-			if tc.expectedErrStr != "" {
-				assert.ErrorContains(t, err, tc.expectedErrStr)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
+				assert.Equal(t, tc.expectedRoutes, result)
+
+				if tc.expectedErrStr != "" {
+					assert.ErrorContains(t, err, tc.expectedErrStr)
+				} else {
+					assert.NoError(t, err)
+				}
+			},
+		)
 	}
 }
