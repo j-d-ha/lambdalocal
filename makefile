@@ -5,6 +5,11 @@ lint: ## run golangci-lint
 	@echo "Running golangci-lint"
 	@golangci-lint run
 
+.PHONEY: test
+test: ## run tests
+	@echo "Running tests"
+	@go test -v ./... -count=1
+
 ### Examples
 
 .PHONEY: run_event

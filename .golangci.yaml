@@ -74,7 +74,7 @@ linters:
     - nolintlint
     - nonamedreturns
     - nosprintfhostport
-    - paralleltest
+    # - paralleltest # using parallel tests can introduce a lot of concurrency issues. Add it when you can, but this should not be enforced.
     - perfsprint
     - prealloc
     - predeclared
