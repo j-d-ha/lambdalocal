@@ -26,14 +26,7 @@ func main() {
 }
 
 func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
-	logger := slog.New(
-		tint.NewHandler(
-			w, &tint.Options{
-				Level:      slog.LevelDebug,
-				TimeFormat: "15:04:05.000",
-			},
-		),
-	)
+	logLevel := slog.LevelInfo
 
 	cmd := &cli.Command{
 		Usage: "A tool for invoking AWS Lambdas locally",
@@ -55,6 +48,18 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 				Aliases: []string{"e"},
 				Value:   5, //nolint:mnd
 				Usage:   "Execution time limit for this lambda in seconds.",
+			},
+			&cli.BoolFlag{
+				Name:    "verbose",
+				Aliases: []string{"v"},
+				Usage:   "Enable verbose logging for debugging.",
+				Action: func(_ context.Context, _ *cli.Command, b bool) error {
+					if b {
+						logLevel = slog.LevelDebug
+					}
+
+					return nil
+				},
 			},
 		},
 		Commands: []*cli.Command{
@@ -99,6 +104,16 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 					template := cmd.String("template")
 					parseJSON := cmd.Bool("parse-json")
 
+					logger := slog.New(
+						tint.NewHandler(
+							w, &tint.Options{
+								Level:      logLevel,
+								TimeFormat: "15:04:05.000",
+							},
+						),
+					)
+
+					// create lambda client
 					lambdaRPC := NewLambdaLambdaRPCClient(lambdaAddress, executionLimit)
 
 					// run local API gateway
@@ -148,9 +163,7 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 							return fmt.Errorf("[in run.event] failed to open event file: %w", err)
 						}
 						defer func() {
-							if err = file.Close(); err != nil {
-								logger.Error("Error closing file", "err", err)
-							}
+							_ = file.Close()
 						}()
 
 						bytes, err := io.ReadAll(file)
@@ -174,6 +187,16 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 					event := cmd.String("string")
 					parseJSON := cmd.Bool("parse-json")
 
+					logger := slog.New(
+						tint.NewHandler(
+							w, &tint.Options{
+								Level:      logLevel,
+								TimeFormat: "15:04:05.000",
+							},
+						),
+					)
+
+					// create lambda client
 					lambdaRPC := NewLambdaLambdaRPCClient(lambdaAddress, executionLimit)
 
 					// invoke lambda with event
