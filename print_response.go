@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"os"
+	"strings"
 
 	"github.com/aws/aws-lambda-go/lambda/messages"
 )
@@ -17,12 +17,16 @@ func printResponse(
 	logger.Debug("Handling lambda event response")
 
 	if invokeResponse.Error != nil {
-		logger.Error("Lambda returned error")
-		_, _ = fmt.Fprintln(os.Stdout, invokeResponse.Error.Message)
+		var builder strings.Builder
+
+		builder.WriteString(fmt.Sprintf("Returned error: %s\n", invokeResponse.Error.Message))
+		builder.WriteString("\nStack trace:\n")
 
 		for _, detail := range invokeResponse.Error.StackTrace {
-			_, _ = fmt.Fprintf(os.Stdout, "\t%s:%d - %s\n", detail.Path, detail.Line, detail.Label)
+			builder.WriteString(fmt.Sprintf("%s:%d - %s\n", detail.Path, detail.Line, detail.Label))
 		}
+
+		logger.Error("Lambda returned error:\n" + builder.String())
 	}
 
 	if invokeResponse.Payload == nil {

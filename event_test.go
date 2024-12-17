@@ -1,13 +1,17 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
-	"os"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/lambda/messages"
+	"github.com/lithammer/dedent"
+	"github.com/lmittmann/tint"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -23,15 +27,14 @@ func (m *MockLambdaCaller) Invoke(data []byte) (messages.InvokeResponse, error) 
 	return args.Get(0).(messages.InvokeResponse), args.Error(1) //nolint:wrapcheck,forcetypeassert
 }
 
-func TestRunLambdaEvent(t *testing.T) {
-	t.Parallel()
-
+func TestRunLambdaEvent(t *testing.T) { //nolint:funlen
 	tests := map[string]struct {
-		event       string
-		parseJSON   bool
-		invokeResp  messages.InvokeResponse
-		invokeErr   error
-		expectedErr string
+		event          string
+		parseJSON      bool
+		invokeResp     messages.InvokeResponse
+		invokeErr      error
+		expectedOutput string
+		expectedErr    error
 	}{
 		"successful invocation without JSON parsing": {
 			event:     `{"key": "value"}`,
@@ -39,8 +42,20 @@ func TestRunLambdaEvent(t *testing.T) {
 			invokeResp: messages.InvokeResponse{
 				Payload: []byte(`{"response": "success"}`),
 			},
-			invokeErr:   nil,
-			expectedErr: "",
+			invokeErr: nil,
+			expectedOutput: `
+				---------------------------------------------------------------------------
+				0 INF Starting local Lambda invocation with Event
+				0 DBG Invoking lambda event
+				0 DBG Handling lambda event response
+				0 INF Lambda returned JSON payload:
+				{
+				    "response": "success"
+				}
+				0 INF Lambda invocation complete, Exiting...
+				---------------------------------------------------------------------------
+			`,
+			expectedErr: nil,
 		},
 		"successful invocation with JSON parsing": {
 			event:     `{"key": "value"}`,
@@ -48,48 +63,158 @@ func TestRunLambdaEvent(t *testing.T) {
 			invokeResp: messages.InvokeResponse{
 				Payload: []byte(`{"response": "{\"innerKey\": \"innerValue\"}"}`),
 			},
-			invokeErr:   nil,
-			expectedErr: "",
+			invokeErr: nil,
+			expectedOutput: `
+				---------------------------------------------------------------------------
+				0 INF Starting local Lambda invocation with Event
+				0 DBG Invoking lambda event
+				0 DBG Handling lambda event response
+				0 INF Lambda returned JSON payload:
+				{
+				    "response": {
+				        "innerKey": "innerValue"
+				    }
+				}
+				0 INF Lambda invocation complete, Exiting...
+				---------------------------------------------------------------------------
+			`,
+			expectedErr: nil,
 		},
 		"invoke error": {
-			event:       `{"key": "value"}`,
-			parseJSON:   false,
-			invokeResp:  messages.InvokeResponse{},
-			invokeErr:   errors.New("invoke error"),
-			expectedErr: "invoke failed: invoke error",
+			event:      `{"key": "value"}`,
+			parseJSON:  false,
+			invokeResp: messages.InvokeResponse{},
+			invokeErr:  errors.New("invoke error"),
+			expectedOutput: `
+				---------------------------------------------------------------------------
+				0 INF Starting local Lambda invocation with Event
+				0 DBG Invoking lambda event
+			`,
+			expectedErr: fmt.Errorf("[in lambdalocal.RunLambdaEvent] invoke failed: %w", errors.New("invoke error")),
 		},
-		"unmarshal error": {
+		"lambda returned error - valid JSON body": {
 			event:     `{"key": "value"}`,
 			parseJSON: false,
 			invokeResp: messages.InvokeResponse{
-				Payload: []byte(`invalid json`),
+				Payload: []byte(`{"error": "test error"}`),
+				Error: &messages.InvokeResponse_Error{
+					Message: "test error",
+					Type:    "",
+					StackTrace: []*messages.InvokeResponse_Error_StackFrame{
+						{
+							Path:  "path1",
+							Line:  1,
+							Label: "part_1",
+						},
+						{
+							Path:  "path2",
+							Line:  2,
+							Label: "part_2",
+						},
+					},
+					ShouldExit: false,
+				},
 			},
-			invokeErr:   nil,
-			expectedErr: "unmarshal response failed: invalid character 'i' looking for beginning of value",
+			invokeErr: nil,
+			expectedOutput: `
+				---------------------------------------------------------------------------
+				0 INF Starting local Lambda invocation with Event
+				0 DBG Invoking lambda event
+				0 DBG Handling lambda event response
+				0 ERR Lambda returned error:
+				Returned error: test error
+				
+				Stack trace:
+				path1:1 - part_1
+				path2:2 - part_2
+				
+				0 INF Lambda returned JSON payload:
+				{
+				    "error": "test error"
+				}
+				0 INF Lambda invocation complete, Exiting...
+				---------------------------------------------------------------------------
+			`,
+			expectedErr: nil,
+		},
+		"lambda returned error - invalid JSON body": {
+			event:     `{"key": "value"}`,
+			parseJSON: false,
+			invokeResp: messages.InvokeResponse{
+				Payload: []byte(`invalid JSON`),
+				Error: &messages.InvokeResponse_Error{
+					Message: "test error",
+					Type:    "",
+					StackTrace: []*messages.InvokeResponse_Error_StackFrame{
+						{
+							Path:  "path1",
+							Line:  1,
+							Label: "part_1",
+						},
+						{
+							Path:  "path2",
+							Line:  2,
+							Label: "part_2",
+						},
+					},
+					ShouldExit: false,
+				},
+			},
+			invokeErr: nil,
+			expectedOutput: `
+				---------------------------------------------------------------------------
+				0 INF Starting local Lambda invocation with Event
+				0 DBG Invoking lambda event
+				0 DBG Handling lambda event response
+				0 ERR Lambda returned error:
+				Returned error: test error
+				
+				Stack trace:
+				path1:1 - part_1
+				path2:2 - part_2
+				
+				0 INF Lambda returned non-JSON payload:
+				invalid JSON
+				0 INF Lambda invocation complete, Exiting...
+				---------------------------------------------------------------------------
+			`,
+			expectedErr: nil,
 		},
 	}
 
 	for name, tc := range tests {
-		t.Run(
-			name, func(t *testing.T) {
-				t.Parallel()
+		t.Run(name, func(t *testing.T) {
+			mockLambdaRPC := new(MockLambdaCaller)
 
-				mockLambdaRPC := new(MockLambdaCaller)
-				logger := slog.Default()
+			var buf bytes.Buffer
 
-				mockLambdaRPC.On("Invoke", []byte(tc.event)).Return(tc.invokeResp, tc.invokeErr)
+			logger := slog.New(
+				tint.NewHandler(
+					&buf, &tint.Options{
+						Level:      slog.LevelDebug,
+						TimeFormat: "0",
+						NoColor:    true,
+					},
+				),
+			)
 
-				err := RunLambdaEvent(context.Background(), os.Stdout, mockLambdaRPC, tc.event, tc.parseJSON, logger)
+			mockLambdaRPC.On("Invoke", []byte(tc.event)).Return(tc.invokeResp, tc.invokeErr)
 
-				if tc.expectedErr == "" {
-					require.NoError(t, err)
-				} else {
-					require.Error(t, err)
-					assert.Contains(t, err.Error(), tc.expectedErr)
-				}
+			err := RunLambdaEvent(context.Background(), &buf, mockLambdaRPC, tc.event, tc.parseJSON, logger)
 
-				mockLambdaRPC.AssertExpectations(t)
-			},
-		)
+			if tc.expectedErr == nil {
+				require.NoError(t, err)
+			} else {
+				assert.Equal(t, tc.expectedErr, err)
+			}
+
+			output := strings.TrimSpace(buf.String())
+
+			// fmt.Println(output)
+
+			assert.Equal(t, strings.TrimSpace(dedent.Dedent(tc.expectedOutput)), output)
+
+			mockLambdaRPC.AssertExpectations(t)
+		})
 	}
 }
