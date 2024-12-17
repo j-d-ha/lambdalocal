@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"os"
 	"regexp"
@@ -21,7 +20,9 @@ var line = strings.Repeat("-", 75) //nolint:gochecknoglobals,mnd
 func main() {
 	ctx := context.Background()
 	if err := run(ctx, os.Stdout); err != nil {
-		log.Fatal(err)
+		_, _ = fmt.Fprintf(os.Stderr, "Error encountered: %s\n", err.Error())
+
+		os.Exit(1)
 	}
 }
 
