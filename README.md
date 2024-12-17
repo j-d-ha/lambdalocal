@@ -48,6 +48,7 @@ GLOBAL OPTIONS:
    --address value, -a value         Address of locally running lambda. Port can be set with env var _LAMBDA_SERVER_PORT. (default: "localhost:8000")
    --parse-json, -p                  Parse response values like 'body' as JSON. (default: false)
    --executionLimit value, -e value  Execution time limit for this lambda in seconds. (default: 5)
+   --verbose, -v                     Enable verbose logging for debugging. (default: false)
    --help, -h                        show help (default: false)
 ```
 

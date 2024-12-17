@@ -1,3 +1,4 @@
+//nolint:forbidigo,funlen
 package main
 
 import (
@@ -21,10 +22,10 @@ type MockFunction struct {
 func (fn *MockFunction) setValues() messages.InvokeResponse {
 	args := fn.Called()
 
-	return args.Get(0).(messages.InvokeResponse)
+	return args.Get(0).(messages.InvokeResponse) //nolint:forcetypeassert
 }
 
-func (fn *MockFunction) Invoke(req *messages.InvokeRequest, response *messages.InvokeResponse) error {
+func (fn *MockFunction) Invoke(_ *messages.InvokeRequest, response *messages.InvokeResponse) error { //nolint:unparam
 	responseNew := fn.setValues()
 	response.Error = responseNew.Error
 	response.Payload = responseNew.Payload
@@ -43,7 +44,7 @@ func mustStartRPCServer(ctx context.Context, service any, address string) {
 			log.Printf("failed to close listener: %v", err)
 		}
 	}()
-	if err != nil {
+	if err != nil { //nolint:wsl
 		panic(fmt.Sprintf("Failed to listen: %v", err))
 	}
 
@@ -57,8 +58,10 @@ func mustStartRPCServer(ctx context.Context, service any, address string) {
 					log.Println("ctx.Err(), Server closed")
 					return
 				}
+
 				log.Println("Accept error:", err)
 			}
+
 			rpc.ServeConn(conn)
 		}
 	}()
@@ -67,8 +70,7 @@ func mustStartRPCServer(ctx context.Context, service any, address string) {
 	fmt.Println("Server is shutting down")
 }
 
-func TestLambdaRPC_Invoke(t *testing.T) { //nolint:paralleltest
-
+func TestLambdaRPC_Invoke(t *testing.T) { //nolint:nolintlint,paralleltest,cyclop
 	// run test RPC client
 	mockService := new(MockFunction)
 
@@ -77,6 +79,7 @@ func TestLambdaRPC_Invoke(t *testing.T) { //nolint:paralleltest
 		cancel()
 		fmt.Println("Cancelled")
 	}()
+
 	go mustStartRPCServer(ctx, mockService, "localhost:8000")
 
 	tests := map[string]struct {
@@ -91,9 +94,11 @@ func TestLambdaRPC_Invoke(t *testing.T) { //nolint:paralleltest
 		"successful invocation": {
 			mockReturn: func() {
 				mockService.On("setValues").
-					Return(messages.InvokeResponse{
-						Payload: []byte("response"),
-					}).
+					Return(
+						messages.InvokeResponse{
+							Payload: []byte("response"),
+						},
+					).
 					Once()
 			},
 			inputAddress:   "localhost:8000",
@@ -134,23 +139,26 @@ func TestLambdaRPC_Invoke(t *testing.T) { //nolint:paralleltest
 		},
 	}
 	for name, tc := range tests { //nolint:paralleltest
-		t.Run(name, func(t *testing.T) {
-			tc.mockReturn()
+		t.Run(
+			name, func(t *testing.T) {
+				tc.mockReturn()
 
-			lambdaRPC := NewLambdaRPC(
-				tc.inputAddress,
-				tc.executionLimit,
-				WithServiceMethod(tc.serviceMethod),
-			)
+				lambdaRPC := NewLambdaLambdaRPCClient(
+					tc.inputAddress,
+					tc.executionLimit,
+					WithServiceMethod(tc.serviceMethod),
+				)
 
-			output, err := lambdaRPC.Invoke(tc.input)
+				output, err := lambdaRPC.Invoke(tc.input)
 
-			assert.Equal(t, tc.expectedOutput, output)
-			if tc.expectError {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
+				assert.Equal(t, tc.expectedOutput, output)
+
+				if tc.expectError {
+					assert.Error(t, err)
+				} else {
+					assert.NoError(t, err)
+				}
+			},
+		)
 	}
 }

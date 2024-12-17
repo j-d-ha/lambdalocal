@@ -9,20 +9,24 @@ import (
 	"log/slog"
 	"os"
 	"regexp"
+	"strings"
 	"time"
 
+	"github.com/lmittmann/tint"
 	"github.com/urfave/cli/v3"
 )
 
+var line = strings.Repeat("-", 75) //nolint:gochecknoglobals,mnd
+
 func main() {
 	ctx := context.Background()
-	if err := run(ctx); err != nil {
+	if err := run(ctx, os.Stdout); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(ctx context.Context) error {
-	logger := slog.Default()
+func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
+	logLevel := slog.LevelInfo
 
 	cmd := &cli.Command{
 		Usage: "A tool for invoking AWS Lambdas locally",
@@ -45,6 +49,18 @@ func run(ctx context.Context) error {
 				Value:   5, //nolint:mnd
 				Usage:   "Execution time limit for this lambda in seconds.",
 			},
+			&cli.BoolFlag{
+				Name:    "verbose",
+				Aliases: []string{"v"},
+				Usage:   "Enable verbose logging for debugging.",
+				Action: func(_ context.Context, _ *cli.Command, b bool) error {
+					if b {
+						logLevel = slog.LevelDebug
+					}
+
+					return nil
+				},
+			},
 		},
 		Commands: []*cli.Command{
 			{
@@ -56,11 +72,12 @@ func run(ctx context.Context) error {
 						Aliases: []string{"p"},
 						Value:   "8080",
 						Usage:   "Port for local API Gateway. Must be a string of four digits .",
-						Action: func(ctx context.Context, cmd *cli.Command, v string) error {
+						Action: func(_ context.Context, _ *cli.Command, v string) error {
 							re := regexp.MustCompile(`^\d{4}$`)
 							if re.MatchString(v) {
 								return fmt.Errorf("expected 4 consecutive digets. Got %v", v)
 							}
+
 							return nil
 						},
 					},
@@ -69,10 +86,10 @@ func run(ctx context.Context) error {
 						Aliases: []string{"t"},
 						Value:   "./template.yaml",
 						Usage:   "Path to AWS SAM template.yaml.",
-						Action: func(ctx context.Context, cmd *cli.Command, v string) error {
+						Action: func(_ context.Context, _ *cli.Command, v string) error {
 							_, err := os.Stat(v)
 							if os.IsNotExist(err) {
-								return errors.New(fmt.Sprintf("template '%v' does not exist", v))
+								return fmt.Errorf("template '%v' does not exist", v)
 							}
 
 							return nil
@@ -87,10 +104,20 @@ func run(ctx context.Context) error {
 					template := cmd.String("template")
 					parseJSON := cmd.Bool("parse-json")
 
-					lambdaRPC := NewLambdaRPC(lambdaAddress, executionLimit)
+					logger := slog.New(
+						tint.NewHandler(
+							w, &tint.Options{
+								Level:      logLevel,
+								TimeFormat: "15:04:05.000",
+							},
+						),
+					)
+
+					// create lambda client
+					lambdaRPC := NewLambdaLambdaRPCClient(lambdaAddress, executionLimit)
 
 					// run local API gateway
-					if err := RunLambdaAPI(ctx, lambdaRPC, port, template, parseJSON, logger); err != nil {
+					if err := RunLambdaAPI(ctx, w, lambdaRPC, port, template, parseJSON, logger); err != nil {
 						return fmt.Errorf("[in run.api] RunLambdaAPI failed: %w", err)
 					}
 
@@ -105,10 +132,10 @@ func run(ctx context.Context) error {
 						Name:    "file",
 						Aliases: []string{"f"},
 						Usage:   "Load event from `FILE_PATH`.",
-						Action: func(ctx context.Context, cmd *cli.Command, v string) error {
+						Action: func(_ context.Context, _ *cli.Command, v string) error {
 							_, err := os.Stat(v)
 							if os.IsNotExist(err) {
-								return errors.New(fmt.Sprintf("event file '%v' does not exist", v))
+								return fmt.Errorf("event file '%v' does not exist", v)
 							}
 
 							return nil
@@ -120,7 +147,7 @@ func run(ctx context.Context) error {
 						Usage:   "Lambda event as a `STRING` to invoke.",
 					},
 				},
-				Before: func(ctx context.Context, cmd *cli.Command) error {
+				Before: func(_ context.Context, cmd *cli.Command) error {
 					filePath := cmd.String("file")
 					event := cmd.String("string")
 
@@ -136,9 +163,7 @@ func run(ctx context.Context) error {
 							return fmt.Errorf("[in run.event] failed to open event file: %w", err)
 						}
 						defer func() {
-							if err = file.Close(); err != nil {
-								logger.Error("Error closing file", "err", err)
-							}
+							_ = file.Close()
 						}()
 
 						bytes, err := io.ReadAll(file)
@@ -162,10 +187,20 @@ func run(ctx context.Context) error {
 					event := cmd.String("string")
 					parseJSON := cmd.Bool("parse-json")
 
-					lambdaRPC := NewLambdaRPC(lambdaAddress, executionLimit)
+					logger := slog.New(
+						tint.NewHandler(
+							w, &tint.Options{
+								Level:      logLevel,
+								TimeFormat: "15:04:05.000",
+							},
+						),
+					)
+
+					// create lambda client
+					lambdaRPC := NewLambdaLambdaRPCClient(lambdaAddress, executionLimit)
 
 					// invoke lambda with event
-					if err := RunLambdaEvent(ctx, lambdaRPC, event, parseJSON, logger); err != nil {
+					if err := RunLambdaEvent(ctx, w, lambdaRPC, event, parseJSON, logger); err != nil {
 						return fmt.Errorf("[in run.event] RunLambdaEvent failed: %w", err)
 					}
 

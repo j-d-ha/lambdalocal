@@ -3,6 +3,8 @@
   <component name="ProjectTasksOptions">
     <enabled-global>
       <option value="gofumpt" />
+      <option value="gci" />
+      <option value="tagalign" />
     </enabled-global>
   </component>
 </project>
