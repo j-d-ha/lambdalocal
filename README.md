@@ -82,6 +82,12 @@ OPTIONS:
    --help, -h                      show help (default: false)
 ```
 
+## Examples
+
+The following code examples demonstrate how to use `lambdalocal`:
+
+- [Event invocation example](./example/event/README.md)
+
 ## Issues and Support
 
 If you find a bug or have an idea to improve the tool, please open an issue and I will do my best to
