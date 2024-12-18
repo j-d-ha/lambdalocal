@@ -86,7 +86,7 @@ OPTIONS:
 
 The following code examples demonstrate how to use `lambdalocal`:
 
-- [Event invocation example](./example/event/README.md)
+- [Event invocation example](./example/event/)
 
 ## Issues and Support
 
