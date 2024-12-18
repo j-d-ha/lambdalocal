@@ -62,7 +62,7 @@ started as an RPC server. Lambda local uses this to pass events to the running l
 
 With the lambda running, lets invoke our lambda though an event using `lambdalocal`.
 
-> [NOTE!]
+> [!NOTE]
 > If you have not already installed `lambdalocal`, run
 `go install github.com/j-d-ha/lambdalocal@latest`
 
