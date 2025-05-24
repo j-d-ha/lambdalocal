@@ -74,8 +74,8 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 						Usage:   "Port for local API Gateway. Must be a string of four digits .",
 						Action: func(_ context.Context, _ *cli.Command, v string) error {
 							re := regexp.MustCompile(`^\d{4}$`)
-							if re.MatchString(v) {
-								return fmt.Errorf("expected 4 consecutive digets. Got %v", v)
+							if !re.MatchString(v) {
+								return fmt.Errorf("expected 4 consecutive digets. Got %s", v)
 							}
 
 							return nil
@@ -89,7 +89,7 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 						Action: func(_ context.Context, _ *cli.Command, v string) error {
 							_, err := os.Stat(v)
 							if os.IsNotExist(err) {
-								return fmt.Errorf("template '%v' does not exist", v)
+								return fmt.Errorf("template '%s' does not exist", v)
 							}
 
 							return nil
@@ -135,7 +135,7 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 						Action: func(_ context.Context, _ *cli.Command, v string) error {
 							_, err := os.Stat(v)
 							if os.IsNotExist(err) {
-								return fmt.Errorf("event file '%v' does not exist", v)
+								return fmt.Errorf("event file '%s' does not exist", v)
 							}
 
 							return nil
@@ -147,20 +147,23 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 						Usage:   "Lambda event as a `STRING` to invoke.",
 					},
 				},
-				Before: func(_ context.Context, cmd *cli.Command) error {
+				Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
 					filePath := cmd.String("file")
 					event := cmd.String("string")
 
 					// validate that both event and file-event not set
 					if filePath != "" && event != "" {
-						return errors.New("'file-event' and 'event' are mutually exclusive")
+						return ctx, errors.New("'file-event' and 'event' are mutually exclusive")
 					}
 
 					// if file path, read file to string
 					if filePath != "" {
-						file, err := os.Open(filePath)
+						file, err := os.Open(filePath) //nolint:gosec
 						if err != nil {
-							return fmt.Errorf("[in run.event] failed to open event file: %w", err)
+							return ctx, fmt.Errorf(
+								"[in run.event] failed to open event file: %w",
+								err,
+							)
 						}
 						defer func() {
 							_ = file.Close()
@@ -168,17 +171,23 @@ func run(ctx context.Context, w io.Writer) error { //nolint:funlen,cyclop
 
 						bytes, err := io.ReadAll(file)
 						if err != nil {
-							return fmt.Errorf("[in run.event] failed to read event file: %w", err)
+							return ctx, fmt.Errorf(
+								"[in run.event] failed to read event file: %w",
+								err,
+							)
 						}
 
 						if err = cmd.Set("string", string(bytes)); err != nil {
-							return fmt.Errorf("[in run.event] failed to set value for key 'string': %w", err)
+							return ctx, fmt.Errorf(
+								"[in run.event] failed to set value for key 'string': %w",
+								err,
+							)
 						}
 
-						return nil
+						return ctx, nil
 					}
 
-					return nil
+					return ctx, nil
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					// get flags
