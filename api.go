@@ -31,6 +31,14 @@ type lambdaCaller interface {
 	Invoke(data []byte) (messages.InvokeResponse, error)
 }
 
+// RunLambdaAPI initializes and starts a local API Gateway to invoke AWS Lambda
+// functions. ctx is the context that controls the server's lifecycle. w is the
+// writer where server outputs or logs will be written. lambdaRPC is the
+// interface used to call Lambda functions. port is the port on which the local
+// API Gateway will run. templatePath specifies the location of the API Gateway
+// template file. parseJSON indicates if the request and response data should be
+// JSON-parsed. logger is used to log the information and errors during
+// execution. Returns an error if setup or execution fails.
 func RunLambdaAPI(
 	ctx context.Context,
 	w io.Writer,
@@ -339,7 +347,7 @@ type samTemplate struct {
 type osFileReader struct{}
 
 func (osFileReader) read(name string) ([]byte, error) {
-	return os.ReadFile(name) //nolint:wrapcheck
+	return os.ReadFile(name) //nolint:gosec,wrapcheck
 }
 
 type fileReader interface {
